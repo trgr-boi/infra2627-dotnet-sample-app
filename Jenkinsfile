@@ -28,11 +28,16 @@ pipeline {
                     set -eu
 
                     echo '=== Unit tests (dotnet test inside the SDK container) ==='
-                    # These are integration tests: the fixture reads TodoApp.Tests/appsettings.json,
-                    # which hardcodes Server=localhost:3306/todo_test_db (no env var override possible).
-                    # So the test container shares the network namespace of a temporary MariaDB
-                    # container: localhost:3306 IS the database. The workspace is not a path on the
-                    # Docker host either, hence the image built from the workspace as build context.
+                    # These are integration tests. The fixture builds its config with
+                    # AddJsonFile("appsettings.json"), a relative path resolved against the test
+                    # host CWD (= the test output dir). Only TodoApp/appsettings.json lands there
+                    # (transitive copy via the project reference; the Tests project has no Content
+                    # item for its own file), so the effective connection string is
+                    # Server=localhost:3306/todo_db. The test container therefore shares the
+                    # network namespace of a temporary MariaDB container: localhost:3306 IS the
+                    # database (and no env var override is possible: the config builder adds no
+                    # environment variables). The workspace is not a path on the Docker host
+                    # either, hence the image built from the workspace as build context.
                     printf '%s\n' \
                       'FROM mcr.microsoft.com/dotnet/sdk:10.0' \
                       'WORKDIR /src' \
@@ -46,7 +51,7 @@ pipeline {
                     trap 'docker rm -f todoappdb-test > /dev/null 2>&1 || true' EXIT
                     docker run -d --name todoappdb-test --network todo-net \
                       -e MARIADB_ROOT_PASSWORD=sekrit \
-                      -e MARIADB_DATABASE=todo_test_db \
+                      -e MARIADB_DATABASE=todo_db \
                       -e MARIADB_USER=todo_usr \
                       -e MARIADB_PASSWORD=letmeinplz \
                       mariadb:11
@@ -63,7 +68,7 @@ pipeline {
                     done
 
                     echo '=== Initialize the test database schema ==='
-                    docker exec -i todoappdb-test mariadb -utodo_usr -pletmeinplz todo_test_db < TodoApp/schema.sql
+                    docker exec -i todoappdb-test mariadb -utodo_usr -pletmeinplz todo_db < TodoApp/schema.sql
 
                     docker run --rm --network container:todoappdb-test dotnet-demo-test
                 '''
