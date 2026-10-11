@@ -128,15 +128,24 @@ pipeline {
                     RESPONSE=''
 
                     echo "Waiting for the app on $APP_URL ..."
-                    for i in 1 2 3 4 5 6 7 8 9 10; do
-                      if RESPONSE=$(curl -fs "$APP_URL" || true); then
+                    # Deliberately NO `|| true` in the $( ): it would mask curl's exit code,
+                    # the assignment would always succeed and the loop would break after the
+                    # first attempt while the app is still booting. Inside an if-condition a
+                    # failing curl does not trip `set -e` either, so nothing extra is needed.
+                    ok=0
+                    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+                      if RESPONSE=$(curl -fs "$APP_URL"); then
+                        ok=1
                         break
                       fi
                       sleep 2
                     done
 
-                    if [ -z "$RESPONSE" ]; then
-                      echo "FAIL: could not reach $APP_URL"
+                    if [ "$ok" -ne 1 ]; then
+                      echo "FAIL: could not reach $APP_URL after 30s"
+                      echo 'App container status and last log lines:'
+                      docker ps --filter name=todoapp --format 'table {{.Names}}\t{{.Status}}'
+                      docker logs --tail 5 todoapp 2>&1 || true
                       exit 1
                     fi
 
